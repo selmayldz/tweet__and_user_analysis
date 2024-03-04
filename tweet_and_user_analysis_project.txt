@@ -1,0 +1,1115 @@
+package prolab3;
+
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.Comparator;
+import java.util.Iterator;
+
+public class CustomHashTable {
+
+    private static final int INITIAL_CAPACITY = 300000;
+    private MyLinkedList<User>[] table;
+    private MyLinkedList<KelimeFrekans>[] kelimeFrekansTable;
+    private int size;
+    private MyList<KelimeFrekans> kullaniciKelimeFrekansListesi;
+    private UserGraph userGraph;
+
+    public CustomHashTable() {
+        table = new MyLinkedList[INITIAL_CAPACITY];
+        for (int i = 0; i < INITIAL_CAPACITY; i++) {
+            table[i] = new MyLinkedList<>();
+        }
+        size = 0;
+        kelimeFrekansTable = new MyLinkedList[INITIAL_CAPACITY];
+        for (int i = 0; i < INITIAL_CAPACITY; i++) {
+            kelimeFrekansTable[i] = new MyLinkedList<>();
+        }
+        this.userGraph = new UserGraph();
+    }
+
+    private int hash(String key) {
+        int hash = 0;
+        for (int i = 0; i < key.length(); i++) {
+            hash = (hash + key.charAt(i)) % table.length;
+        }
+        return Math.abs(hash);
+    }
+
+    private int hashForKelimeFrekans(String kelime) {
+        int hash = 0;
+        for (int i = 0; i < kelime.length(); i++) {
+            hash = (hash * 31 + kelime.charAt(i)) % kelimeFrekansTable.length;
+        }
+        return Math.abs(hash);
+    }
+
+    public void addUser(User user) {
+        int index = hash(user.getUsername());
+        table[index].add(user);
+        size++;
+    }
+
+    public User getUser(String username) {
+        int index = hash(username);
+        for (User user : table[index]) {
+            if (user.getUsername().equals(username)) {
+                return user;
+            }
+        }
+        return null;
+    }
+
+    public void processUserTweetsWithZemberek(ZemberekProcessor zemberekProcessor) {
+        for (MyLinkedList<User> userList : table) {
+            for (User user : userList) {
+                zemberekProcessor.processUserTweets(user);
+            }
+        }
+    }
+
+    public void addKelime(String username, String kelime) {
+        int index = hashForKelimeFrekans(username);
+        if (kelimeFrekansTable[index] == null) {
+            kelimeFrekansTable[index] = new MyLinkedList<>();
+        }
+
+        MyLinkedList<KelimeFrekans> kelimeFrekansList = kelimeFrekansTable[index];
+        KelimeFrekans existingKelime = findKelime(kelimeFrekansList, kelime);
+
+        if (existingKelime != null) {
+            existingKelime.frekans++;
+        } else {
+            kelimeFrekansList.add(new KelimeFrekans(username, kelime, 1));
+        }
+    }
+
+    private KelimeFrekans findKelime(MyLinkedList<KelimeFrekans> kelimeFrekansList, String kelime) {
+        for (KelimeFrekans kelimeFrekans : kelimeFrekansList) {
+            if (kelimeFrekans.kelime.equals(kelime)) {
+                return kelimeFrekans;
+            }
+        }
+        return null;
+    }
+
+    public Iterable<User> getAllUsers() {
+        return () -> new Iterator<User>() {
+            private int index = 0;
+
+            @Override
+            public boolean hasNext() {
+                while (index < table.length && table[index] == null) {
+                    index++;
+                }
+                return index < table.length && table[index] != null;
+            }
+
+            @Override
+            public User next() {
+                return table[index].iterator().next();
+            }
+        };
+    }
+
+    MyList<dilbolgetrend>[] bolgeTrendListeleri = new MyList[INITIAL_CAPACITY];
+
+    public void herKullanıcınınEnCokKullandigi10KelimeyiBul() throws IOException {
+        CustomHashTable customhashtable = new CustomHashTable();
+        ZemberekProcessor zemb = new ZemberekProcessor(customhashtable);
+        try (PrintWriter writer = new PrintWriter(new FileWriter("kullanici_ilgialani_raporu.txt"))) {
+            for (MyLinkedList<User> kullaniciListesi : table) {
+                if (kullaniciListesi != null) {
+                    for (User kullanici : kullaniciListesi) {
+                        String kullaniciAdi = kullanici.getUsername();
+                        MyList<KelimeFrekans> kullaniciKelimeFrekansListesi = getKullaniciKelimeFrekansListesi(kullaniciAdi);
+                        String bolge = kullanici.getRegion();
+
+                        kullaniciKelimeFrekansListesi.sort(Comparator.comparingInt(KelimeFrekans::getFrekans).reversed().thenComparing(KelimeFrekans::getKelime));
+
+                        System.out.println(kullaniciAdi + " için ilgi alanları:");
+                        writer.println(kullaniciAdi + " için ilgi alanları:");
+                        for (int i = 0; i < 10 && i < kullaniciKelimeFrekansListesi.size(); i++) {
+                            KelimeFrekans kelimeFrekans = kullaniciKelimeFrekansListesi.get(i);
+
+                            String kelimeKoku = kelimeFrekans.getKelime();
+
+                            writer.println("İlgi alanı: " + kelimeFrekans.getKelime() + " Frekans: " + kelimeFrekans.getFrekans());
+
+                            MyList<TweetBilgisi> ilgiAlaniIcerenTweetler = getIlgiAlaniniIcerenTweetler(kullanici, kelimeKoku);
+                            System.out.println("İlgi alanı: " + kelimeFrekans.getKelime() + " Frekans: " + kelimeFrekans.getFrekans());
+                            for (TweetBilgisi tweetbilgisi : ilgiAlaniIcerenTweetler) {
+                                MyList<String> kelimeler = zemb.zemberekIleAyrıştır(tweetbilgisi.getTweet());
+
+                                if (kelimeler.stream().anyMatch(kelime -> kelime.equalsIgnoreCase(kelimeKoku))) {
+                                    System.out.println("    Tweet: " + tweetbilgisi.getTweet());
+                                }
+                            }
+                            addTrendToBolgeList(bolge, kelimeFrekans.getKelime());
+                        }
+                        System.out.println();
+                        writer.println();
+                    }
+                }
+            }
+            for (int i = 0; i < bolgeTrendListeleri.length; i++) {
+                MyList<dilbolgetrend> bolgeTrendListesi = bolgeTrendListeleri[i];
+                if (bolgeTrendListesi != null && !bolgeTrendListesi.isEmpty()) {
+                    System.out.println(bolgeTrendListesi);
+                }
+            }
+        }
+    }
+
+    public void addTrendToBolgeList(String bolge, String trend) {
+        int index = hash(bolge);
+        MyList<dilbolgetrend> bolgeTrendListesi = bolgeTrendListeleri[index];
+
+        if (bolgeTrendListesi == null) {
+            bolgeTrendListesi = new MyList<>();
+            bolgeTrendListeleri[index] = bolgeTrendListesi;
+        }
+
+        addTrendToList(bolgeTrendListesi, bolge, trend);
+    }
+
+    private void addTrendToList(MyList<dilbolgetrend> trendListesi, String bolge, String trend) {
+        if (trendListesi != null) {
+            dilbolgetrend bolgeTrend = findBolgeTrend(bolge, trendListesi);
+            bolgeTrend.addTrend(trend);
+        }
+    }
+
+    private dilbolgetrend findBolgeTrend(String bolge, MyList<dilbolgetrend> bolgeTrendListesi) {
+        for (dilbolgetrend bolgeTrend : bolgeTrendListesi) {
+            if (bolgeTrend.getBolge().equals(bolge)) {
+                return bolgeTrend;
+            }
+        }
+
+        dilbolgetrend newBolgeTrend = new dilbolgetrend(bolge, new MyList<>());
+        bolgeTrendListesi.add(newBolgeTrend);
+        return newBolgeTrend;
+    }
+
+    private MyList<KelimeFrekans> getKullaniciKelimeFrekansListesi(String kullaniciAdi) {
+        MyList<KelimeFrekans> kullaniciKelimeFrekansListesi = new MyList<>();
+
+        int index = hashForKelimeFrekans(kullaniciAdi);
+        if (kelimeFrekansTable[index] != null) {
+            for (KelimeFrekans kelimeFrekans : kelimeFrekansTable[index]) {
+                if (kelimeFrekans.getUsername().equals(kullaniciAdi)) {
+                    kullaniciKelimeFrekansListesi.add(kelimeFrekans);
+                }
+            }
+        }
+
+        return kullaniciKelimeFrekansListesi;
+    }
+
+    public boolean user1TakipEdiyorUser2(String user1, String user2) {
+        MyList<String> user1TakipEttigiKullanicilar = findUserByUsername(user1).getFollowing();
+
+        return user1TakipEttigiKullanicilar.contains(user2);
+    }
+
+    public User findUserByUsername(String username) {
+        for (MyLinkedList<User> kullaniciListesi : table) {
+            if (kullaniciListesi != null) {
+                for (User kullanici : kullaniciListesi) {
+                    if (kullanici.getUsername().equals(username)) {
+                        return kullanici;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    public void ortakKelimeleriBul() {
+        MyList<CommonWordUsage> commonWordUsages = new MyList<>();
+
+        for (MyLinkedList<User> kullaniciListesi : table) {
+            if (kullaniciListesi != null) {
+                for (User kullanici : kullaniciListesi) {
+                    String kullaniciAdi = kullanici.getUsername();
+                    MyList<KelimeFrekans> kullaniciKelimeFrekansListesi = getKullaniciKelimeFrekansListesi(kullaniciAdi);
+
+                    kullaniciKelimeFrekansListesi.sort(Comparator.comparingInt(KelimeFrekans::getFrekans).reversed().thenComparing(KelimeFrekans::getKelime));
+
+                    for (int i = 0; i < Math.min(10, kullaniciKelimeFrekansListesi.size()); i++) {
+                        String kelime = kullaniciKelimeFrekansListesi.get(i).getKelime();
+
+                        boolean found = false;
+                        for (CommonWordUsage commonWordUsage : commonWordUsages) {
+                            if (commonWordUsage.getWord().equals(kelime)) {
+                                commonWordUsage.addUser(kullaniciAdi);
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!found) {
+                            CommonWordUsage newCommonWordUsage = new CommonWordUsage(kelime);
+                            newCommonWordUsage.addUser(kullaniciAdi);
+                            commonWordUsages.add(newCommonWordUsage);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (CommonWordUsage commonWordUsage : commonWordUsages) {
+            if (commonWordUsage.getUserCount() > 1) {
+                System.out.println("İlgi Alanı: " + commonWordUsage.getWord());
+                System.out.println("İlgi alanına sahip kullanıcılar: " + commonWordUsage.getUsers());
+
+                findAndPrintConnectedUsers(commonWordUsage.getUsers());
+                System.out.println();
+            }
+        }
+    }
+
+    private void findAndPrintConnectedUsers(MyList<String> users) {
+        MyList<String> connectedUsers = new MyList<>();
+
+        for (String user1 : users) {
+            for (String user2 : users) {
+                if (!user1.equals(user2)) {
+                    boolean isFollowing = user1TakipEdiyorUser2(user1, user2);
+                    boolean isFollower = user1TakipEdiyorUser2(user2, user1);
+
+                    if (isFollowing || isFollower) {
+                        connectedUsers.add(user1 + " - " + user2);
+                    }
+                }
+            }
+        }
+
+        for (String connectedUser : connectedUsers) {
+            System.out.println("Connected users: " + connectedUser);
+        }
+    }
+
+    public class CommonWordUsage {
+
+        private String word;
+        private MyList<String> users;
+
+        public CommonWordUsage(String word) {
+            this.word = word;
+            this.users = new MyList<>();
+        }
+
+        public String getWord() {
+            return word;
+        }
+
+        public void addUser(String user) {
+            users.add(user);
+        }
+
+        public int getUserCount() {
+            return users.size();
+        }
+
+        public MyList<String> getUsers() {
+            return users;
+        }
+    }
+
+    private MyList<TweetBilgisi> getIlgiAlaniniIcerenTweetler(User kullanici, String ilgiAlani) {
+        MyList<TweetBilgisi> ilgiAlaniniIcerenTweetler = new MyList<>();
+
+        String kucukHarfliIlgiAlani = ilgiAlani.toLowerCase();
+
+        for (String tweet : kullanici.getTweets()) {
+            String kucukHarfliTweet = tweet.toLowerCase();
+
+            if (kucukHarfliTweet.contains(kucukHarfliIlgiAlani)) {
+                ilgiAlaniniIcerenTweetler.add(new TweetBilgisi(kullanici.getUsername(), tweet));
+            }
+        }
+
+        return ilgiAlaniniIcerenTweetler;
+    }
+
+    private static class TweetBilgisi {
+
+        private String kullaniciAdi;
+        private String tweet;
+
+        public TweetBilgisi(String kullaniciAdi, String tweet) {
+            this.kullaniciAdi = kullaniciAdi;
+            this.tweet = tweet;
+        }
+
+        public String getKullaniciAdi() {
+            return kullaniciAdi;
+        }
+
+        public String getTweet() {
+            return tweet;
+        }
+    }
+
+    class dilbolgetrend {
+
+        String bolge;
+        MyList<String> trendler;
+
+        public dilbolgetrend(String bolge, MyList<String> trendler) {
+            this.bolge = bolge;
+            this.trendler = trendler;
+        }
+
+        public String getBolge() {
+            return bolge;
+        }
+
+        public MyList<String> getTrendler() {
+            return trendler;
+        }
+
+        public void addTrend(String trend) {
+            trendler.add(trend);
+        }
+
+        @Override
+        public String toString() {
+            return "Bölge " + bolge + " için trendler: " + trendler;
+        }
+    }
+
+    class KelimeFrekans {
+
+        String username;
+        String kelime;
+        int frekans;
+
+        public KelimeFrekans(String username, String kelime, int frekans) {
+            this.username = username;
+            this.kelime = kelime;
+            this.frekans = frekans;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public String getKelime() {
+            return kelime;
+        }
+
+        public int getFrekans() {
+            return frekans;
+        }
+    }
+}
+package prolab3;
+import java.util.Comparator;
+import java.util.Iterator;
+
+public class MyLinkedList<T> implements Iterable<T>{
+    private Node<T> head;
+    private int size;
+
+    public MyLinkedList() {
+        head = null;
+        size = 0;
+    }
+
+    public int size() {
+        return size;
+    }
+    
+    public T get(int index) {
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + size);
+        }
+
+        Node<T> current = head;
+        for (int i = 0; i < index; i++) {
+            current = current.next;
+        }
+        return current.data;
+    }
+    
+    public void add(T data) {
+        Node<T> newNode = new Node<>(data);
+        if (head == null) {
+            head = newNode;
+        } else {
+            Node<T> current = head;
+            while (current.next != null) {
+                current = current.next;
+            }
+            current.next = newNode;
+        }
+        size++;
+    }
+
+    public boolean contains(T data) {
+        Node<T> current = head;
+        while (current != null) {
+            if (current.data.equals(data)) {
+                return true;
+            }
+            current = current.next;
+        }
+        return false;
+    }
+    
+    public void sort(Comparator<T> comparator) {
+        boolean swapped;
+        do {
+            swapped = false;
+            Node<T> current = head;
+            Node<T> previous = null;
+
+            while (current != null && current.next != null) {
+                Node<T> nextNode = current.next;
+                if (comparator.compare(current.data, nextNode.data) > 0) {
+                    // Swap nodes
+                    if (previous == null) {
+                        head = nextNode;
+                    } else {
+                        previous.next = nextNode;
+                    }
+
+                    current.next = nextNode.next;
+                    nextNode.next = current;
+
+                    swapped = true;
+                }
+
+                previous = current;
+                current = current.next;
+            }
+        } while (swapped);
+    }
+
+
+    @Override
+    public Iterator<T> iterator() {
+        return new LinkedListIterator();
+    }
+
+    private class LinkedListIterator implements Iterator<T> {
+        private Node<T> current = head;
+
+        @Override
+        public boolean hasNext() {
+            return current != null;
+        }
+
+        @Override
+        public T next() {
+            T data = current.data;
+            current = current.next;
+            return data;
+        }
+    }
+
+    private static class Node<T> {
+        private T data;
+        private Node<T> next;
+
+        public Node(T data) {
+            this.data = data;
+            this.next = null;
+        }
+    }
+
+}
+
+package prolab3;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+public class MyList<T> implements Iterable<T>{
+    private static final int INITIAL_CAPACITY = 10;
+    private Object[] elements;
+    private int size;
+
+    public MyList() {
+        elements = new Object[INITIAL_CAPACITY];
+        size = 0;
+    }
+
+    public void add(T element) {
+        ensureCapacity(size + 1);
+        elements[size++] = element;
+    }
+
+    @SuppressWarnings("unchecked")
+    public T get(int index) {
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + size);
+        }
+        return (T) elements[index];
+    }
+
+    public MyList<T> subList(int fromIndex, int toIndex) {
+        if (fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex > size || fromIndex > toIndex) {
+            throw new IndexOutOfBoundsException();
+        }
+        MyList<T> subList = new MyList<>();
+
+        for (int i = fromIndex; i < toIndex; i++) {
+            @SuppressWarnings("unchecked")
+            T element = (T) elements[i];
+            subList.add(element);
+        }
+
+        return subList;
+    }
+    
+    private void ensureCapacity(int minCapacity) {
+        if (minCapacity > elements.length) {
+            int newCapacity = Math.max(elements.length * 2, minCapacity);
+            elements = Arrays.copyOf(elements, newCapacity);
+        }
+    }
+    
+    public boolean isEmpty() {
+        return size == 0;
+    }
+
+
+    public int size() {
+        return size;
+    }
+    @Override
+    public String toString() {
+        StringBuilder result = new StringBuilder();
+        result.append("[");
+        for (int i = 0; i < size; i++) {
+            result.append(elements[i]);
+            if (i < size - 1) {
+                result.append(", ");
+            }
+        }
+        result.append("]");
+        return result.toString();
+    }
+     @Override
+    public Iterator<T> iterator() {
+        return new MyListIterator();
+    }
+    public boolean contains(T element) {
+        for (int i = 0; i < size; i++) {
+            if (elements[i].equals(element)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public Stream<T> stream() {
+        Spliterator<T> spliterator = Spliterators.spliteratorUnknownSize(iterator(), Spliterator.ORDERED);
+        return StreamSupport.stream(spliterator, false);
+    }
+
+    public void addAll(MyList<T> otherList) {
+        ensureCapacity(size + otherList.size);
+
+        System.arraycopy(otherList.elements, 0, elements, size, otherList.size);
+        size += otherList.size;
+    }
+  
+     public T[] toArray(T[] array) {
+        if (array.length < size) {
+            array = Arrays.copyOf(array, size);
+        }
+        System.arraycopy(elements, 0, array, 0, size);
+        return array;
+    }
+
+   public void sort(Comparator<? super T> comparator) {
+    Arrays.sort((T[]) elements, 0, size, comparator);
+}
+
+    private class MyListIterator implements Iterator<T> {
+        private int currentIndex = 0;
+
+        @Override
+        public boolean hasNext() {
+            return currentIndex < size;
+        }
+
+        @Override
+        public T next() {
+            if (!hasNext()) {
+                throw new IndexOutOfBoundsException("No more elements");
+            }
+            return get(currentIndex++);
+        }
+    }
+}
+package prolab3;
+
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Scanner;
+import javax.swing.SwingUtilities;
+
+public class Prolab3 {
+
+    public static void main(String[] args) {
+        UserGraph userGraph = new UserGraph();
+        String jsonFilePath = "C:\\Users\\Medih\\OneDrive\\Belgeler\\twitter_data.json\\twitter_data.json";
+
+        try {
+            String jsonData = new String(Files.readAllBytes(Paths.get(jsonFilePath)));
+
+            JSONArray jsonArray = (JSONArray) new JSONParser().parse(jsonData);
+
+            CustomHashTable customHashTable = new CustomHashTable();
+            for (Object obj : jsonArray) {
+
+                JSONObject userJson = (JSONObject) obj;
+
+                User user = new User(
+                        (String) userJson.get("username"),
+                        (String) userJson.get("name"),
+                        ((Long) userJson.get("followers_count")).intValue(),
+                        ((Long) userJson.get("following_count")).intValue(),
+                        (String) userJson.get("language"),
+                        (String) userJson.get("region"),
+                        convertJSONArrayToList((JSONArray) userJson.get("tweets")),
+                        convertJSONArrayToList((JSONArray) userJson.get("following")),
+                        convertJSONArrayToList((JSONArray) userJson.get("followers"))
+                );
+
+                customHashTable.addUser(user);
+
+            }
+
+            System.out.println("Lütfen bir kullanıcı adı giriniz:");
+            Scanner scanner = new Scanner(System.in);
+            String kullaniciGiris = scanner.nextLine();  
+            String usernameToSearch = kullaniciGiris;
+            User retrievedUser = customHashTable.getUser(usernameToSearch);
+            for (String follower : retrievedUser.getFollowers()) {
+                userGraph.addFollower(follower, retrievedUser.getUsername());
+            }
+
+            for (String following : retrievedUser.getFollowing()) {
+                userGraph.addFollowing(retrievedUser.getUsername(), following);
+            }
+
+            if (retrievedUser != null) {
+                MyList<String> tweets = retrievedUser.getTweets();
+                System.out.println("Retrieved User: " + retrievedUser.getName() + "   Tweets: " + tweets);
+            } else {
+                System.out.println("User with username " + usernameToSearch + " not found.");
+            }
+            ZemberekProcessor zemberekProcessor = new ZemberekProcessor(customHashTable);
+
+            customHashTable.processUserTweetsWithZemberek(zemberekProcessor);
+
+            customHashTable.herKullanıcınınEnCokKullandigi10KelimeyiBul();
+           
+
+            SwingUtilities.invokeLater(() -> {
+                UserGraphVisualization ex = new UserGraphVisualization(userGraph, retrievedUser);
+
+                ex.setVisible(true);
+            });
+ customHashTable.ortakKelimeleriBul();
+        } catch (IOException | ParseException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    private static MyList<String> convertJSONArrayToList(JSONArray jsonArray) {
+        MyList<String> resultList = new MyList<>();
+        for (Object obj : jsonArray) {
+            resultList.add((String) obj);
+        }
+        return resultList;
+    }
+}
+
+package prolab3;
+
+public class User {
+    private final String username;
+    private final String name;
+    private final int followersCount;
+    private final int followingCount;
+    private final String language;
+    private final String region;
+    private final MyList<String> tweets;
+    private final MyList<String> following;
+    private final MyList<String> followers;
+    
+
+    public User(String username, String name, int followersCount, int followingCount, String language, String region, MyList<String> tweets,MyList<String> following,MyList<String> followers) {
+        this.username = username;
+        this.name = name;
+        this.followersCount = followersCount;
+        this.followingCount = followingCount;
+        this.language = language;
+        this.region = region;
+        this.tweets = tweets;
+        this.followers = followers;
+        this.following = following;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getName() {
+        return name;
+    }
+    public String getRegion(){
+        return region;
+    }
+    public String getLanguage(){
+        return language;
+    }
+    public int getFollowersCount(){
+        return followersCount;
+    }
+    public int getFollowingCount(){
+        return followingCount;
+    }
+    public MyList<String> getTweets(){
+        return tweets;
+    }
+    public MyList<String> getFollowers(){
+        return followers;
+    }
+    public MyList<String> getFollowing(){
+        return following;
+    }
+}
+
+package prolab3;
+
+public class UserGraph {
+    private UserNode[] nodes;
+    private int size;
+
+    public UserGraph() {
+        this.nodes = new UserNode[10];
+        this.size = 0;
+    }
+
+public void addFollower(String follower, String following) {
+    UserNode followingNode = getNode(following);
+    UserNode followerNode = getNode(follower);
+
+    if (!isFollower(followingNode, followerNode)) {
+        followerNode.next = followingNode.followers;
+        followingNode.followers = followerNode;
+
+        System.out.println("Added follower: " + follower + " for user: " + following);
+    }
+}
+
+public void addFollowing(String follower, String following) {
+    UserNode followerNode = getNode(follower);
+    UserNode followingNode = getNode(following);
+
+    if (!isFollowing(followerNode, followingNode)) {
+        followingNode.next = followerNode.following;
+        followerNode.following = followingNode;
+
+        System.out.println("Added following: " + follower + " for user: " + following);
+    }
+}
+
+public boolean isFollower(UserNode followingNode, UserNode followerNode) {
+    UserNode current = followingNode.followers;
+
+    while (current != null) {
+        if (current.username.equals(followerNode.username)) {
+            return true;
+        }
+        current = current.next;
+    }
+
+    return false;
+}
+
+public boolean isFollowing(UserNode followerNode, UserNode followingNode) {
+    UserNode current = followerNode.following;
+
+    while (current != null) {
+        if (current.username.equals(followingNode.username)) {
+            return true;
+        }
+        current = current.next;
+    }
+
+    return false;
+}
+
+    public UserNode[] getNodes() {
+        UserNode[] result = new UserNode[size];
+        System.arraycopy(nodes, 0, result, 0, size);
+        return result;
+    }
+
+    public UserNode getNode(String username) {
+        for (int i = 0; i < size; i++) {
+            if (nodes[i].username.equals(username)) {
+                return nodes[i];
+            }
+        }
+
+        UserNode newNode = new UserNode(username);
+        newNode.next = null;
+
+        if (size == nodes.length) {
+            UserNode[] newNodes = new UserNode[size * 2];
+            System.arraycopy(nodes, 0, newNodes, 0, size);
+            nodes = newNodes;
+        }
+
+        nodes[size++] = newNode;
+        return newNode;
+    }
+
+    public String[] getFollowers(String username) {
+        UserNode userNode = getNode(username);
+        String[] followersArray = new String[size(userNode.followers)];
+
+        UserNode current = userNode.followers;
+        int index = 0;
+        while (current != null) {
+            followersArray[index++] = current.username;
+            current = current.next;
+        }
+
+        return followersArray;
+    }
+public String[] getFollowing(String username) {
+    UserNode userNode = getNode(username);
+    String[] followingArray = new String[size(userNode.following)];
+
+    UserNode current = userNode.following;
+    int index = 0;
+    while (current != null) {
+        followingArray[index++] = current.username;
+        current = current.next;
+    }
+
+    return followingArray;
+}
+    public int size(UserNode node) {
+        int count = 0;
+        UserNode current = node;
+        while (current != null) {
+            count++;
+            current = current.next;
+        }
+        return count;
+    }
+
+    public static class UserNode {
+        public final String username;
+        private UserNode followers;
+        private UserNode following;
+        private UserNode next;
+
+        public UserNode(String username) {
+            this.username = username;
+            this.followers = null;
+            this.following=null;
+            this.next = null;
+        }
+    }
+    
+    
+}
+
+package prolab3;
+
+import javax.swing.*;
+import java.awt.*;
+
+public class UserGraphVisualization extends JFrame {
+
+    private UserGraph userGraph;
+    private User user;
+
+    public UserGraphVisualization(UserGraph userGraph, User user) {
+        this.userGraph = userGraph;
+        this.user = user;
+        initUI();
+    }
+
+    private void initUI() {
+        setTitle("User Graph Visualization");
+        setSize(2000, 2000);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        UserGraphPanel graphPanel = new UserGraphPanel(userGraph, user);
+        add(graphPanel);
+
+        setLocationRelativeTo(null);
+    }
+ 
+
+   public static class UserGraphPanel extends JPanel {
+
+        private UserGraph userGraph;
+        private User user;
+
+        public UserGraphPanel(UserGraph userGraph, User user) {
+            this.userGraph = userGraph;
+            this.user = user;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            
+            String username = user.getUsername();
+            int centerX = getWidth() / 2;
+            int centerY = getHeight() / 2;
+
+            g.setColor(Color.RED);
+            g.fillOval(centerX - 10, centerY - 10, 20, 20);
+
+            for (String follower : userGraph.getFollowers(username)) {
+                UserGraph.UserNode followerNode = userGraph.getNode(follower);
+
+                int followerX = (int) (Math.random() * getWidth());
+                int followerY = (int) (Math.random() * getHeight());
+
+                g.setColor(Color.GREEN);
+                g.fillOval(followerX - 10, followerY - 10, 20, 20);
+                g.setColor(Color.BLACK);
+                g.drawLine(centerX, centerY, followerX, followerY);
+                g.drawString(follower, followerX - 5, followerY - 15);
+            }
+
+            for (String following : userGraph.getFollowing(username)) {
+                UserGraph.UserNode followingNode = userGraph.getNode(following);
+
+                int followingX = (int) (Math.random() * getWidth());
+                int followingY = (int) (Math.random() * getHeight());
+
+                g.setColor(Color.BLUE);
+                g.fillOval(followingX - 10, followingY - 10, 20, 20);
+                g.setColor(Color.BLACK);
+                g.drawLine(centerX, centerY, followingX, followingY);
+                g.drawString(following, followingX - 5, followingY - 15);
+            }
+        }
+}}
+
+package prolab3;
+
+import zemberek.morphology.TurkishMorphology;
+import zemberek.morphology.analysis.SingleAnalysis;
+import zemberek.morphology.analysis.WordAnalysis;
+import zemberek.tokenization.TurkishTokenizer;
+import zemberek.tokenization.Token;
+import java.io.IOException;
+import java.util.List;
+import java.util.Arrays;
+import java.util.ArrayList;
+
+
+public class ZemberekProcessor {
+
+    private TurkishTokenizer tokenizer;
+    private TurkishMorphology morphology;
+    private CustomHashTable kelimeFrekansTable;
+
+
+    public ZemberekProcessor(CustomHashTable kelimeFrekansTable) throws IOException {
+        this.tokenizer = TurkishTokenizer.builder().ignoreTypes().build();
+        this.kelimeFrekansTable = kelimeFrekansTable;
+        this.morphology = TurkishMorphology.createWithDefaults();
+    }
+
+    public void processUserTweets(User user){
+        MyList<String> tweets = user.getTweets();
+
+        for (String tweet : tweets) {
+            MyList<String> kelimeler = zemberekIleAyrıştır(tweet);
+
+            for (String kelime : kelimeler) {
+                kelimeFrekansTable.addKelime(user.getUsername(), kelime);
+            }
+        }
+    }
+    ArrayList<String> engellenenKelimeler = new ArrayList<>(Arrays.asList(
+    "bul", "ara", "et", "eylemek", "olmak", "aa", "acaba", "ait", "altı", "a", "al", "altmış", "ama", "amma",
+    "anca", "ancağ", "ancak", "artık", "asla", "aslında", "az", "b", "bana", "bari", "başkası", "bazen", "başla",
+    "bazı", "bazıları", "bazısı", "be", "belki", "ben", "bende", "benden", "beni", "benim", "beş", "bide",
+    "bile", "bin", "bir", "birazı", "birçoğ", "birçoğu", "birçok", "birçokları", "biri", "birisi", "birkaç",
+    "birkaçı", "birkez", "birşey", "birşeyi", "biz", "bizden", "bize", "bizi", "bizim", "böyle", "böylece",
+    "değişik", "son", "gel", "ayn", "yer", "bu", "buna", "bunda", "bundan", "bunu", "bunun", "burada",
+    "bütün", "c", "ç", "çoğu", "çoğuna", "çoğunu", "çok", "çünkü", "d", "da", "daha", "dahi", "dandini",
+    "de", "defa", "değ", "değil", "değin", "dek", "demek", "diğer", "diğeri", "diğerleri", "diye", "dk",
+    "dha", "doğrusu", "doksan", "dokuz", "dolayı", "dört", "e", "eğer", "eh", "elbette", "elli", "en",
+    "etkili", "f", "fakat", "fakad", "falan", "falanca", "felan", "filan", "filanca", "g", "ğ", "gene",
+    "gereğ", "gibi", "göre", "görece", "h", "hakeza", "hakkında", "hâlâ", "halbuki", "hangi", "hangisi",
+    "hani", "hasebiyle", "hatime", "hatta", "hele", "hem", "henüz", "hep", "hepsi", "hepsine", "hepsini",
+    "her", "her biri", "herkes", "herkese", "herkesi", "hiç", "hiç kimse", "hiçbiri", "hiçbirine", "hiçbirini",
+    "hoş", "i", "ı", "ın", "için", "içinde", "içre", "iki", "ila", "ile", "imdi", "indinde", "intağ", "intak",
+    "ise", "işte", "ister", "j", "k", "kaç", "kaçı", "kadar", "kah", "karşın", "katrilyon", "kelli", "kendi",
+    "kendine", "kendini", "keşke", "keşki", "kez", "keza", "kezaliğ", "kezalik", "ki", "kim", "kimden",
+    "kime", "kimi", "kimin", "kimisi", "kimse", "kırk", "kullan", "l", "67", "lakin", "m", "madem", "mademki", "mamafih",
+    "meğer", "meğerki", "meğerse", "mi", "mı", "milyar", "milyon", "mu", "mü", "n", "nasıl", "nde", "ne", "ne kadar",
+    "ne zaman", "neden", "nedense", "nedir", "nerde", "nere", "nerede", "nereden", "nereli", "neresi", "nereye",
+    "nesi", "neye", "neyi", "neyse", "niçin", "ni", "nı", "nin", "nın", "nitekim", "niye", "o", "ö", "öbürkü",
+    "öbürü", "on", "ön", "ona", "önce", "onda", "ondan", "onlar", "onlara", "onlardan", "onlari", "onların",
+    "onu", "onun", "orada", "ötekisi", "ötürü", "otuz", "öyle", "oysa", "oysaki", "p", "pad", "pat", "peki",
+    "r", "rağmen", "s", "ş", "sakın", "sana", "sanki", "şayet", "sekiz", "seksen", "sen", "senden", "seni",
+    "senin", "son", "sonra", "68", "şöyle", "şu", "şuna", "şunda", "şundan", "şunu", "şunun", "t", "ta", "tabi",
+    "tamam", "tl", "trilyon", "tüm", "tümü", "u", "ü", "üç", "üsd", "üst", "uyarınca", "üzere", "v", "var", "ve",
+    "velev", "velhasıl", "velhasılıkelam", "vesselam", "veya", "veyahud", "veyahut", "y", "ya", "ya da", "yani", "yap", 
+    "yazığ", "yazık", "yedi", "yekdiğeri", "yerine", "yetmiş", "yine", "yirmi", "yoksa", "yukarda", "yukardan",
+    "yukarıda", "yukarıdan", "yüz", "z", "zaten", "zinhar", "zira", "tür", "cins", "ad", "iyi", "kötü", "çeşit",
+    "ol", "tut", "değer", "ad", "çeşit", "örnek", ".", " ", "olarak", "\"", "tarafından", "ver", "ilk","oldu", 
+    "büyük", "ayrıca", "ed", "bulun", "[", "]", "!", ":", ";"
+)); 
+    public MyList<String> zemberekIleAyrıştır(String tweet) {
+        List<Token> tokens = tokenizer.tokenize(tweet);
+        MyList<String> result = new MyList<>();
+
+        for (Token token : tokens) {
+            String kelime = token.getText();
+            String kelimeKoku = getRootForm(kelime);
+
+            if (!engellenenKelimeler.contains(kelimeKoku.toLowerCase())) {
+                result.add(kelimeKoku);
+            }
+        }
+
+        return result;
+    }
+    public String getRootForm(String word) {
+    WordAnalysis analysis = morphology.analyze(word);
+    List<SingleAnalysis> analysisList = analysis.getAnalysisResults();
+
+    if (!analysisList.isEmpty()) {
+        return analysisList.get(0).getStems().get(0).toLowerCase();
+    }
+    return word.toLowerCase();
+}
+
+}
+
